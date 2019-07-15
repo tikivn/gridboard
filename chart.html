@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/jointjs/2.1.0/joint.css" />
+</head>
+<body>
+    <div id="holder">
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/3.10.1/lodash.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.3.3/backbone.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jointjs/2.1.0/joint.js"></script>
+    <script type="text/javascript">
+
+        function getResourceId(connector) {
+            var scheme = connector.endpoint.scheme;
+            if (scheme == 'kafka') {
+                return 'kafka\n(' + connector.endpoint.placeholders.topic + ')';
+            }
+            if (scheme == 'mongodb') {
+                return 'mongodb\n(' + connector.endpoint.placeholders.database + '/' + connector.endpoint.placeholders.collection + ')';
+            }
+            if (scheme == 'rocksdb') {
+                return 'rocksdb\n(' + connector.endpoint.placeholders.path + ')';
+            }
+            return undefined;
+        }
+
+        $.get('http://localhost:8080/context', function(ret) {
+            var graph = new joint.dia.Graph;
+
+            var paper = new joint.dia.Paper({
+                el: document.getElementById('holder'),
+                model: graph,
+                width: 2048,
+                height: 2048,
+                gridSize: 10,
+                drawGrid: true,
+                background: {
+                    color: 'rgba(0, 255, 0, 0.3)'
+                }
+            });
+
+            var map = {};
+            var resources = {};
+
+            let counter = 0;
+            let spacing = 7;
+
+            for (let i in ret.gateways) {
+                let gateway = ret.gateways[i];
+                let rect = new joint.shapes.standard.Rectangle();
+                rect.position(400, counter * 100 + 50);
+                rect.resize(20 + Math.min(300, i.length * spacing), 60);
+                rect.attr({
+                    body: {
+                        fill: '#F39C12',
+                        rx: 20,
+                        ry: 20,
+                        strokeWidth: 2
+                    },
+                    label: {
+                        text: i.substring(0, 45),
+                        fill: 'white'
+                    }
+                });
+                rect.addTo(graph);
+
+                for (let j in gateway.connectors) {
+                    let connector = gateway.connectors[j];
+                    let resourceId = getResourceId(connector);
+                    let resourceRect = undefined;
+                    if (resourceId) {
+                        if (!resources[resourceId]) {
+                            let label = resourceId;
+                            resourceRect = new joint.shapes.standard.Cylinder();
+                            resourceRect.position(50, counter * 100 + 50);
+                            resourceRect.resize(80, 60);
+                            resourceRect.attr({
+                                body: {
+                                    fill: 'white',
+                                    rx: 20,
+                                    ry: 20,
+                                    strokeWidth: 2
+                                },
+                                label: {
+                                    text: label,
+                                    fill: 'black'
+                                }
+                            });
+                            resourceRect.addTo(graph);
+                            resources[resourceId] = resourceRect;
+                        } else {
+                            resourceRect = resources[resourceId];
+                        }
+                    }
+                    if (connector.consumer) {
+                        let base = connector.endpoint.scheme + " consumer";
+                        let label = base;
+                        if (connector.endpoint.scheme == 'vertx') {
+                            label += '\n/' + connector.endpoint.placeholders.path;
+                        }
+                        let rect1 = new joint.shapes.standard.Rectangle();
+                        rect1.position(200, counter * 100 + 50);
+                        rect1.resize(Math.min(300, Math.max(base.length, label.length - base.length) * spacing), 60);
+                        rect1.attr({
+                            body: {
+                                fill: '#2ECC71',
+                                rx: 20,
+                                ry: 20,
+                                strokeWidth: 2
+                            },
+                            label: {
+                                text: label,
+                                fill: 'white'
+                            }
+                        });
+                        rect1.addTo(graph);
+                        let link = new joint.shapes.standard.Link();
+                        link.source(rect1);
+                        link.target(rect);
+                        link.addTo(graph);
+                        if (resourceRect) {
+                            let resourceLink = new joint.shapes.standard.Link();
+                            resourceLink.source(resourceRect);
+                            resourceLink.target(rect1);
+                            resourceLink.addTo(graph);                          
+                        }
+                    }
+                    if (connector.producer) {
+                        let base = connector.endpoint.scheme + " producer";
+                        let label = base;
+                        if (connector.endpoint.scheme == 'http') {
+                            label += '\n' + connector.endpoint.rawEndpoint;
+                        }
+                        let rect1 = new joint.shapes.standard.Rectangle();
+                        rect1.position(200, counter * 100 + 50);
+                        rect1.resize(Math.min(300, 20 + label.length * spacing), 60);
+                        rect1.attr({
+                            body: {
+                                fill: '#E74C3C',
+                                rx: 20,
+                                ry: 20,
+                                strokeWidth: 2
+                            },
+                            label: {
+                                text: label,
+                                fill: 'white'
+                            }
+                        });
+                        rect1.addTo(graph);
+                        let link = new joint.shapes.standard.Link();
+                        link.source(rect);
+                        link.target(rect1);
+                        link.addTo(graph);
+                        if (resourceRect) {
+                            let resourceLink = new joint.shapes.standard.Link();
+                            resourceLink.source(rect1);
+                            resourceLink.target(resourceRect);
+                            resourceLink.addTo(graph);                          
+                        }
+                    }
+                }
+
+                map[i] = rect;
+                counter++;
+            }
+
+            counter = 0;
+            for (let i in ret.gateways) {
+                let gateway = ret.gateways[i];
+                for (let k in gateway.subscriptions) {
+                    let label = gateway.subscriptions[k].processor.class;
+                    let rect1 = new joint.shapes.standard.Rectangle();
+                    rect1.position(650, counter * 100 + 50);
+                    rect1.resize(20 + label.length * spacing, 60);
+                    rect1.attr({
+                        body: {
+                            fill: '#2C3E50',
+                            rx: 20,
+                            ry: 20,
+                            strokeWidth: 2
+                        },
+                        label: {
+                            text: label,
+                            fill: '#3498DB'
+                        }
+                    });
+                    rect1.addTo(graph);
+
+                    var link = new joint.shapes.standard.Link();
+                    link.source(map[i]);
+                    link.target(rect1);
+                    link.addTo(graph);
+
+                    let injections = gateway.subscriptions[k].processor.injections;
+                    if (injections) {
+                        for (let j in injections) {
+                            if (map[injections[j].target]) {
+                                var link = new joint.shapes.standard.Link();
+                                link.source(rect1);
+                                link.target(map[injections[j].target]);
+                                link.addTo(graph);
+                            }
+                        }
+                    }
+                }
+                counter++;
+            }
+        });
+    </script>
+</body>
+</html>
